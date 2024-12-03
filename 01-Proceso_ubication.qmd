@@ -1,0 +1,478 @@
+---
+title: "Proceso para determinar ubicación óptima"
+author: "Gisarte"
+format: html
+---
+
+## El Problema
+
+I have an area and a raster layer with the population of that area. Last week they suffered the flood impact and now we are in the recovery phase. 
+
+We want to determinate 8 delivery points in the area in order to reach all the population. Our objective is to minimize the walking time to delivery points.
+
+
+
+## QGIS
+
+To determine 8 optimal delivery points in the flood-affected area to minimize walking time for the population, you can use QGIS along with some spatial analysis techniques. Here's a step-by-step approach to solve this problem:
+
+### Data Preparation
+
+1. Ensure your population raster layer and area boundary are in the same coordinate reference system (CRS).
+
+2. Convert the population raster to a vector point layer:
+   - Use the "Raster pixels to points" tool to create a point for each raster cell.
+   - Each point will have an attribute representing the population count.
+
+### Analysis
+
+#### Population Density
+
+1. Create a heatmap of population density:
+   - Use the "Heatmap (Kernel Density Estimation)" tool.
+   - Input the point layer created from the population raster.
+   - Use population count as the weight.
+
+#### Accessibility Analysis
+
+2. Generate a road network layer if not available:
+   - Use OpenStreetMap data through the QuickOSM plugin to extract roads[4].
+
+3. Create a cost surface raster:
+   - Use the "r.cost" tool from GRASS GIS (available in QGIS Processing Toolbox).
+   - Input the road network as the starting points.
+   - This will create a raster representing the cost (time) to reach each cell from the nearest road.
+
+### Optimal Location Selection
+
+4. Use the "K-means clustering" algorithm:
+   - Input the population points layer.
+   - Set the number of clusters to 8 (for 8 delivery points).
+   - Use population count as weights.
+
+5. Extract the centroids of the resulting clusters:
+   - These centroids will be your initial delivery point locations.
+
+6. Fine-tune the locations:
+   - Move the points to the nearest suitable location (e.g., road intersection, open area) using your local knowledge or high-resolution imagery.
+
+### Validation and Visualization
+
+7. Create service areas for each delivery point:
+   - Use the "Service area (from layer)" tool.
+   - Input the road network and delivery point locations.
+   - Set appropriate travel time/distance thresholds.
+
+8. Visualize the results:
+   - Display the delivery points over the population density heatmap.
+   - Show the service areas to identify any gaps in coverage.
+
+### Optimization
+
+9. Iteratively adjust the delivery point locations:
+   - Analyze the population served by each point.
+   - Identify underserved areas and adjust points accordingly.
+   - Repeat steps 7-9 until you achieve optimal coverage.
+
+By following this workflow, you can determine 8 delivery points that minimize walking time for the flood-affected population. This approach combines population distribution data with accessibility analysis to ensure efficient and equitable distribution of aid[1][3][5].
+
+Citations:
+[1] https://gis4schools.readthedocs.io/en/latest/part4/4_2.html
+[2] https://www.un-spider.org/advisory-support/recommended-practices/flood-mapping-and-damage-assessment-using-s2-data/step-by-step
+[3] https://www.un-spider.org/advisory-support/recommended-practices/recommended-practice-flood-mapping-and-damage-assessment
+[4] https://www.youtube.com/watch?v=PL5ScexN78Q
+[5] https://www.scirp.org/pdf/gep_2022101715195867.pdf
+[6] https://manual.inasafe.org/training/qgis/Chapter-02-QGIS_and_InaSAFE_for_Disaster_Management.html
+[7] https://www.researchgate.net/publication/295626726_FloodRisk_a_QGIS_plugin_for_flood_consequences_estimation
+[8] https://www.researchgate.net/publication/385251768_Mapping_Disaster_Response_Facilities_Using_OSM_and_QGIS_Enhancing_Flood_Preparedness_in_Sylhet_Region
+
+### How can I use the GHSL-POP dataset to assess population density in the affected area
+
+To assess population density in the flood-affected area using the GHSL-POP dataset, follow these steps:
+
+1. Add the GHSL-POP raster layer to your QGIS project:
+   - Locate the downloaded GHSL-POP file (e.g., `GHS_POP_E2015_GLOBE_R2019A_4326_9ss_V1_0_18_3.tif`).
+   - Drag and drop the file into your QGIS project or use the "Add Raster Layer" tool[1].
+
+2. Clip the GHSL-POP raster to your area of interest (AOI):
+   - Use the "Clip Raster by Mask Layer" tool.
+   - Set the GHSL-POP layer as the input layer and your AOI vector as the mask layer[1].
+
+3. Symbolize the clipped population layer:
+   - Right-click on the clipped layer and select "Properties".
+   - In the Symbology tab, choose a suitable color ramp to represent population density.
+   - Adjust the classification method and number of classes as needed.
+
+4. Calculate zonal statistics:
+   - Use the "Zonal Statistics" tool to calculate population statistics within the flood-affected area.
+   - Input the clipped population raster and the flood extent polygon.
+   - Select statistics such as sum (total population) and mean (average density).
+
+5. Visualize the results:
+   - Create a map composition showing the population density overlay with the flood extent.
+   - Add a legend and scale bar for better interpretation.
+
+By following these steps, you can effectively use the GHSL-POP dataset to assess and visualize population density in the flood-affected area, providing valuable information for your recovery phase planning[3][5].
+
+Citations:
+[1] https://gis4schools.readthedocs.io/en/latest/part4/4_2.html
+[2] https://documents1.worldbank.org/curated/es/256241552483977593/pdf/Estimating-Small-Area-Population-Density-Using-Survey-Data-and-Satellite-Imagery-An-Application-to-Sri-Lanka.pdf
+[3] https://publications.jrc.ec.europa.eu/repository/bitstream/JRC117104/ghsl_data_package_2019_1.pdf
+[4] https://files.thegovlab.org/data-artefact-study-hrsl.pdf
+[5] https://human-settlement.emergency.copernicus.eu/ghs_pop.php
+[6] https://publications.jrc.ec.europa.eu/repository/bitstream/JRC133256/JRC133256_01.pdf
+[7] https://www.mdpi.com/2071-1050/13/14/7851
+[8] https://developers.google.com/earth-engine/datasets/catalog/JRC_GHSL_P2023A_GHS_POP
+
+## R & RStudio
+
+To replicate the QGIS workflow in R and RStudio using the `sf` and `terra` packages, follow these steps:
+
+## Setup
+
+1. **Install Required Packages**:
+   ```r
+   install.packages("sf")
+   install.packages("terra")
+   ```
+
+2. **Load Libraries**:
+```{r}
+   library(sf)
+   library(terra)
+```
+
+## Data Preparation
+
+1. **Load Population Raster**:
+   - Use the terra package to load your population raster.
+   
+```{r}
+   pop_raster <- rast("path/to/population_raster.tif")
+```
+
+2. **Load Area Boundary**:
+   - Use the sf package to load your area boundary shapefile.
+```{r}
+area_boundary <- st_read("path/to/area_boundary.shp")
+```
+
+## Analysis
+
+### Population Density
+
+3. **Clip Population Raster to Area of Interest (AOI)**:
+   - Clip the raster to the area boundary.
+ 
+   
+```{r}
+pop_clipped <- crop(pop_raster, vect(area_boundary))
+```
+
+4. **Convert Raster to Points**:
+   - Convert the clipped raster to a point data frame.
+```{r}
+pop_points <- as.data.frame(pop_clipped, xy = TRUE, na.rm = TRUE)
+
+pop_points_sf <- st_as_sf(pop_points, coords = c("x", "y"), crs = st_crs(area_boundary))
+```
+
+### Optimal Location Selection
+
+5. **K-means Clustering for Delivery Points**:
+   - Perform k-means clustering to determine optimal delivery point locations.
+   
+```{r}
+ set.seed(123)  # For reproducibility
+   kmeans_result <- kmeans(pop_points[, c("x", "y")], centers = 8)
+   
+   delivery_points <- data.frame(kmeans_result$centers)
+   delivery_points_sf <- st_as_sf(delivery_points, coords = c("x", "y"), crs = st_crs(area_boundary))
+```
+
+  
+
+### Validation and Visualization
+
+6. **Visualize Results**:
+   - Plot the population points and delivery points using 
+```{r}
+   
+   
+   ggplot() +
+     geom_sf(data = area_boundary, fill = NA, color = "black") +
+     geom_sf(data = pop_points_sf, aes(color = value), size = 0.5) +
+     geom_sf(data = delivery_points_sf, color = "red", size = 3) +
+     theme_minimal()
+```
+
+This workflow will help you assess population density and determine optimal delivery points in R using the sf and terra packages, similar to what you would do in QGIS.
+
+Citations:
+[1] https://r-spatial.github.io/sf/
+[2] https://www.paulamoraga.com/book-spatial/the-sf-package-for-spatial-vector-data.html
+[3] https://r-spatial.org/book/07-Introsf.html
+[4] https://r-spatial.r-universe.dev/sf
+[5] https://www.rdocumentation.org/packages/sf/versions/1.0-18
+[6] https://cran.r-project.org/web/packages/sf/sf.pdf
+[7] https://cran.r-project.org/web/packages/sf/index.html
+[8] https://rubenfcasal.github.io/estadistica_espacial/sf-intro.html
+
+### Accesibility analysis considering the road layer from Open Street Maps
+
+You're right, I apologize for overlooking the accessibility analysis using the OpenStreetMap (OSM) road layer. Let's address that crucial step in the R workflow:
+
+## Accessibility Analysis
+
+1. Download OSM road data:
+```{r}
+   library(osmdata)
+   
+   bbox <- st_bbox(area_boundary)
+   roads <- opq(bbox) %>%
+     add_osm_feature(key = "highway") %>%
+     osmdata_sf()
+   
+   road_lines <- roads$osm_lines
+```
+
+2. Filter relevant road types for walking:
+
+```{r}
+   walking_roads <- road_lines %>%
+     filter(highway %in% c("residential", "pedestrian", "footway", "path", "service", "track", "unclassified"))
+```
+
+3. Create a network graph:
+```{r}
+   library(sfnetworks)
+   
+   road_network <- as_sfnetwork(walking_roads)
+```
+
+4. Perform accessibility analysis:
+```{r}
+  library(tidygraph)
+   
+   # Calculate travel time (assuming 5 km/h walking speed)
+   road_network <- road_network %>%
+     activate("edges") %>%
+     mutate(travel_time = st_length(geometry) / 5000 * 60)  # Time in minutes
+   
+   # Calculate accessibility from delivery points
+   accessibility <- st_network_cost(road_network, 
+                                    from = delivery_points_sf, 
+                                    to = pop_points_sf, 
+                                    weight = "travel_time")
+```
+
+5. Visualize accessibility:
+```{r}
+ggplot() +
+     geom_sf(data = area_boundary, fill = NA, color = "black") +
+     geom_sf(data = walking_roads, color = "gray") +
+     geom_sf(data = pop_points_sf, aes(color = accessibility[, 1]), size = 0.5) +
+     geom_sf(data = delivery_points_sf, color = "red", size = 3) +
+     scale_color_viridis_c(name = "Travel Time (min)") +
+     theme_minimal() +
+     ggtitle("Accessibility to Delivery Points")
+```
+
+This analysis uses the OSM road network to calculate walking times from the delivery points to the population points, providing a more accurate representation of accessibility in the flood-affected area[1][4].
+
+Citations:
+[1] https://heigit.org/exploring-the-value-of-microsoft-ml-roads-for-osm-data-quality-analysis/
+[2] https://www.geofabrik.de/data/geofabrik-osm-gis-standard-0.7.pdf
+[3] https://community.esri.com/t5/arcgis-network-analyst-questions/network-analysis-using-osm-roads-data/td-p/1133710
+[4] https://resource.esriuk.com/blog/openstreetmap-feature-layers-a-more-flexible-way-of-using-open-data/
+[5] https://www.youtube.com/watch?v=PL5ScexN78Q
+[6] https://wiki.openstreetmap.org/wiki/Rapid
+[7] https://www.youtube.com/watch?v=2jMXY2qktOk
+[8] https://www.scirp.org/pdf/gep_2022101715195867.pdf
+
+
+## R & RStudio (2)
+
+Plan
+
+- Load and Prepare the Data:
+      Load the raster file representing the population distribution.
+      Load or define the area of interest (shapefile or polygon).
+
+- Generate a Cost Surface:
+      Create a cost surface where the cost represents walking time. If no additional layers (like roads or elevation) are provided, assume a uniform walking speed.
+
+- Identify Potential Delivery Points:
+      Use a grid of potential delivery points within the area of interest.
+
+- Optimize Delivery Points:
+      Use a spatial optimization algorithm, such as k-means clustering or facility location optimization, to determine the 8 delivery points that minimize walking time.
+
+- Evaluate the Results:
+      Calculate walking times from each raster cell to the nearest delivery point and ensure coverage.
+
+
+
+```{r}
+# Load required libraries
+library(terra)
+library(sf)
+library(dplyr)
+
+# Step 1: Load and prepare data
+# Replace 'path_to_raster' and 'path_to_shapefile' with actual file paths
+population_raster <- rast("path_to_raster/population.tif")
+area <- st_read("path_to_shapefile/area.shp")
+
+# Crop and mask the raster to the area of interest
+population_raster <- crop(population_raster, vect(area))
+population_raster <- mask(population_raster, vect(area))
+
+# Step 2: Generate a cost surface
+# Assuming uniform walking time for simplicity
+cost_surface <- app(population_raster, fun = function(x) ifelse(is.na(x), NA, 1))
+
+# Step 3: Identify potential delivery points
+# Generate a regular grid within the area
+grid <- st_make_grid(area, cellsize = res(population_raster)[1], what = "centers")
+grid <- st_as_sf(grid, crs = st_crs(area))
+grid <- st_intersection(grid, area)
+
+# Convert grid to SpatVector for compatibility with terra
+grid_vect <- vect(grid)
+
+# Step 4: Optimize delivery points
+# Extract population values for each grid point
+grid_population <- terra::extract(population_raster, grid_vect, ID = FALSE)
+grid_data <- as.data.frame(grid_population)
+grid_data <- cbind(as.data.frame(geom(grid_vect)), grid_data)
+colnames(grid_data) <- c("x", "y", "population")
+grid_data <- grid_data %>% filter(!is.na(population))
+
+# Use k-means clustering to find 8 optimal points
+set.seed(42)  # Ensure reproducibility
+kmeans_result <- kmeans(grid_data[, c("x", "y")], centers = 8, iter.max = 100)
+
+# Get delivery point coordinates
+delivery_points <- data.frame(kmeans_result$centers)
+delivery_points_sf <- st_as_sf(delivery_points, coords = c("x", "y"), crs = st_crs(area))
+
+# Step 5: Evaluate the results
+# Calculate distances from each raster cell to the nearest delivery point
+delivery_vect <- vect(delivery_points_sf)
+distance_raster <- terra::distance(cost_surface, delivery_vect)
+
+# Visualize the delivery points and distance map
+plot(population_raster, main = "Population Raster")
+plot(vect(area), add = TRUE)
+plot(delivery_vect, col = "red", pch = 19, add = TRUE)
+plot(distance_raster, main = "Distance to Nearest Delivery Point")
+plot(vect(area), add = TRUE)
+
+
+
+
+```
+
+Key Details:
+
+  Population Raster: Represents population density; higher values mean more people in a cell.
+    Cost Surface: Can incorporate real-world features like roads or elevation if available.
+    K-Means Clustering: Minimizes the variance in walking distances to delivery points.
+
+Next Steps:
+
+  a. Incorporate additional layers (e.g., roads, elevation) into the cost surface for realistic walking times.
+  b. Evaluate the walking times for each cell and check if any areas are underserved by the delivery points.
+
+
+### with roads from Open Streets Maps
+
+Incorporating the road layer from OpenStreetMap (OSM) into the workflow allows you to improve the cost surface by assigning lower walking costs to areas near roads. Here's the updated code:
+
+
+
+```{r}
+# Load required libraries
+library(terra)
+library(sf)
+library(dplyr)
+
+# Step 1: Load and prepare data
+# Replace 'path_to_raster', 'path_to_shapefile', and 'path_to_osm_roads' with actual file paths
+population_raster <- rast("path_to_raster/population.tif")
+area <- st_read("path_to_shapefile/area.shp")
+roads <- st_read("path_to_osm_roads/roads.shp")
+
+# Crop and mask the raster and road data to the area of interest
+population_raster <- crop(population_raster, vect(area))
+population_raster <- mask(population_raster, vect(area))
+roads <- st_intersection(roads, area)
+
+# Step 2: Generate a cost surface
+# Create a base cost surface with uniform walking speed
+base_cost_surface <- app(population_raster, fun = function(x) ifelse(is.na(x), NA, 1))
+
+# Rasterize the road layer with lower cost near roads
+road_raster <- rasterize(vect(roads), base_cost_surface, field = 1)  # Field = 1 to mark road presence
+road_cost_surface <- app(road_raster, fun = function(x) ifelse(is.na(x), 1, 0.5))  # Roads have half the cost
+
+# Combine the base cost surface and road cost surface
+combined_cost_surface <- overlay(base_cost_surface, road_cost_surface, fun = min)
+
+# Step 3: Identify potential delivery points
+# Generate a regular grid within the area
+grid <- st_make_grid(area, cellsize = res(population_raster)[1], what = "centers")
+grid <- st_as_sf(grid, crs = st_crs(area))
+grid <- st_intersection(grid, area)
+
+# Convert grid to SpatVector for compatibility with terra
+grid_vect <- vect(grid)
+
+# Step 4: Optimize delivery points
+# Extract population values for each grid point
+grid_population <- terra::extract(population_raster, grid_vect, ID = FALSE)
+grid_data <- as.data.frame(grid_population)
+grid_data <- cbind(as.data.frame(geom(grid_vect)), grid_data)
+colnames(grid_data) <- c("x", "y", "population")
+grid_data <- grid_data %>% filter(!is.na(population))
+
+# Use k-means clustering to find 8 optimal points
+set.seed(42)  # Ensure reproducibility
+kmeans_result <- kmeans(grid_data[, c("x", "y")], centers = 8, iter.max = 100)
+
+# Get delivery point coordinates
+delivery_points <- data.frame(kmeans_result$centers)
+delivery_points_sf <- st_as_sf(delivery_points, coords = c("x", "y"), crs = st_crs(area))
+
+# Step 5: Evaluate the results
+# Calculate distances from each raster cell to the nearest delivery point using the cost surface
+delivery_vect <- vect(delivery_points_sf)
+distance_raster <- terra::distance(combined_cost_surface, delivery_vect)
+
+# Visualize the delivery points and distance map
+plot(population_raster, main = "Population Raster")
+plot(vect(area), add = TRUE)
+plot(delivery_vect, col = "red", pch = 19, add = TRUE)
+plot(distance_raster, main = "Distance to Nearest Delivery Point")
+plot(vect(area), add = TRUE)
+
+```
+
+Key Updates
+
+  Incorporating Road Data:
+        The road layer (roads) is rasterized with a lower walking cost (0.5) compared to non-road areas (1.0).
+        Combined with the base cost surface using overlay.
+
+  Cost Surface:
+        Roads reduce walking time. This can be further refined with real walking speeds based on road type or surface quality.
+
+  Potential Delivery Points:
+        The rest of the workflow remains unchanged, ensuring that delivery points are optimized to minimize walking time.
+
+Next Steps:
+
+  a. Experiment with different road cost values based on road type (e.g., highways, footpaths).
+  b. Visualize the cost surface to verify the influence of the road layer.
+

@@ -2,17 +2,16 @@
 title: "Municipios"
 author: "Gisarte"
 format: html
-editor: visual
+editor: source
 ---
 
 ## Municipios
 
 Obtención de límites municipales de España a partir de [MapSpain](https://ropenspain.github.io/mapSpain/)
 
-## Installation
+### Installation
 
 
-```{r}
 # Install mapSpain in R:
 install.packages("mapSpain",
   repos = c(
@@ -21,7 +20,7 @@ install.packages("mapSpain",
   ),
   dependencies = TRUE
 )
-```
+
 
 ```{r}
 library(mapSpain)
@@ -34,10 +33,14 @@ library(reactable)
 ## Seleccionar Municipio
 
 
+```{r aoi_name_20}
+aoi_name <- c("Valencia")
+```
+
 ```{r}
 # Get munics
 Base <- esp_get_munic(year = "2019", 
-                      region = "Madrid")
+                      region = "Valencia")
 ```
 
 ```{r}
@@ -46,28 +49,33 @@ reactable(Base,
 )
 ```
 
-
+```{r}
+herriak <- c("Massanassa", "Albal", "Paiporta", "Picanya", "Sedaví", "Benetússer", "Beniparrell", "Catarroja","Silla",
+"Alfafar")
+```
 
 
 ```{r}
 # Get munics
 aoi <- Base |> 
-  filter(name=="Pozuelo de Alarcón")
+  filter(name %in% herriak) |> 
+  select(c("name", "geometry"))
 ```
-
 
 ```{r}
 plot(aoi)
+
 ```
 
 
-### Basauri
 
-```{r}
-a <- esp_munic.sf$name
-?esp_munic.sf
+### Guardar aoi
 
-esp_munic.sf |> filter(name=="Basauri") |> plot()
+```{r, guardar_aoi-gpkg}
+st_write(aoi,
+         #paste0("../../proceso/")
+         paste0("../../process/geoprocess/",aoi_name, ".gpkg"),
+         append = FALSE)
+
 ```
-
 
