@@ -1,0 +1,73 @@
+---
+title: "Municipios"
+author: "Gisarte"
+format: html
+editor: visual
+---
+
+## Municipios
+
+Obtención de límites municipales de España a partir de [MapSpain](https://ropenspain.github.io/mapSpain/)
+
+## Installation
+
+
+```{r}
+# Install mapSpain in R:
+install.packages("mapSpain",
+  repos = c(
+    "https://ropenspain.r-universe.dev",
+    "https://cloud.r-project.org"
+  ),
+  dependencies = TRUE
+)
+```
+
+```{r}
+library(mapSpain)
+library(sf)
+library(tidyverse)
+
+library(reactable)
+```
+
+## Seleccionar Municipio
+
+
+```{r}
+# Get munics
+Base <- esp_get_munic(year = "2019", 
+                      region = "Madrid")
+```
+
+```{r}
+reactable(Base,
+  searchable = TRUE, striped = TRUE, filterable = TRUE, height = 350#,   elementId = "munis-galicia"
+)
+```
+
+
+
+
+```{r}
+# Get munics
+aoi <- Base |> 
+  filter(name=="Pozuelo de Alarcón")
+```
+
+
+```{r}
+plot(aoi)
+```
+
+
+### Basauri
+
+```{r}
+a <- esp_munic.sf$name
+?esp_munic.sf
+
+esp_munic.sf |> filter(name=="Basauri") |> plot()
+```
+
+
