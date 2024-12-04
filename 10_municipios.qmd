@@ -12,23 +12,27 @@ Obtención de límites municipales de España a partir de [MapSpain](https://rop
 ### Installation
 
 
-# Install mapSpain in R:
-install.packages("mapSpain",
-  repos = c(
-    "https://ropenspain.r-universe.dev",
-    "https://cloud.r-project.org"
-  ),
-  dependencies = TRUE
-)
-
-
-```{r}
+```{r municipios}
 library(mapSpain)
 library(sf)
 library(tidyverse)
 
+library(mapview)
+
 library(reactable)
 ```
+
+## Seleccionar AOI - Máscara
+
+El área de interés se ha elaborado directamente en QGIS, digitalizando sobre un mapa base.
+
+```{r load-mask}
+aoi_mask <- read_sf("../../geoproceso/delivery/aoi_mask.gpkg")
+
+mapview(aoi_mask)
+```
+
+
 
 ## Seleccionar Municipio
 
@@ -78,4 +82,6 @@ st_write(aoi,
          append = FALSE)
 
 ```
+
+
 
