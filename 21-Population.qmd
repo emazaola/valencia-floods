@@ -18,29 +18,33 @@ El área de trabajo se ha obtenido en 10-AOi y se ha guardado en **geoprocess**.
 ```{r aoi_name_20}
 aoi_name <- c("Valencia")
 ```
+
 Se carga la zona de estudio tanto en sf como en vector-rast
 ```{r aoi}
-AOI_sf <- read_sf(
-    paste0("../../process/geoprocess/",aoi_name,".gpkg"))
+AOI_sf <- read_sf("../../geoproceso/delivery/aoi_mask.gpkg")
 
 AOI <- terra::vect(AOI_sf)
 ```
+
 Se guarda en el CRS de las capas de datos
 ```{r crs-aoi}
 crsAOI <- crs(AOI)
 ```
+
+
 ## GHS Population
 ### [GHSL - Global Human Settlement Layer](https://human-settlement.emergency.copernicus.eu/download.php)
 
-Se descargan las capas de GHS-POP de los años que interesan a la resolución que interesa.
+Se descargan las capas de GHS-POP de 2020 y la estimación para 2025 
 - Elegimos resolución de 100 m: 
 - Años: 2000, 2005, 2010, 2015, 2020, 2025, 2030. Los 2 últimos son estimaciones.
 - El sistema de coordenadas es Mollweide.
 
 Descargar los datos y descomprimir en
 ```{r path-GHS_POP, include=TRUE}
-path <- "../../data/geodata/GHS_POP/" # la ruta donde se encuentran los archivos  GHS_POP
+path <- "../../data/GHS_POP/" # la ruta donde se encuentran los archivos  GHS_POP
 ```
+
 Borrar las carpetas comprimidas y dejar solo los tiff
 
 Se crea la lista con los tifs
@@ -60,10 +64,12 @@ names(GHS_stack)
 
 ### Reproyectar 1
 Para que AOi y stack tengan el mismo CRS,se reproyecta la AOI al CRS del stack porque es más rápido. Luego se hará el proceso inverso
+
 ```{r project_POP-1}
 AOI <- project(AOI, GHS_stack)
 #GHS_stack <- project(GHS_stack, AOI)
 ```
+
 ### Recortar
 ```{r crop_POP}
 AOI_stack <- terra::crop(
@@ -73,6 +79,7 @@ AOI_stack <- terra::crop(
     mask = TRUE
 )
 ```
+
 ### Reproyectar 2
 Ahora que el stack es más pequeños, se vuelve a reproyectar al CRS de la zona
 
@@ -84,7 +91,8 @@ AOI_stack <- project(AOI_stack, crsAOI)
 plot(AOI_stack, 
      col = rev(terrain.colors(255)), 
      axes = TRUE,
-     nlyr(AOI_stack)) # plot la última capa del stack
+     1:nlyr(AOI_stack)
+     ) # plot la última capa del stack
 ```
 
 ## Reclasificar
@@ -94,10 +102,11 @@ AOI_stack <- clamp(AOI_stack, lower=0, upper=Inf)
 
 AOI_stack[AOI_stack <= 0] <- NA
 ```
+
 ## Separar las bandas
 Se separa cada capa del stack
 ```{r nombres_stack-POP, include=TRUE, warning = FALSE, message = FALSE}
-names(AOI_stack) <- names(AOI_stack) %>% # los nombres originales
+names(AOI_stack) <- names(AOI_stack)  |>  # los nombres originales
     substr(1, 13)
 names(AOI_stack)
 ```
@@ -109,7 +118,7 @@ names(AOI_stack)
 paleta_POP <- colorRampPalette(c("wheat", "orange", "brown"))
 
 plot(AOI_stack, 
-     range=c(0.1,180), # para que tengan todos los plt la misma escala
+     range=c(0.1,400), # para que tengan todos los plt la misma escala
      col=paleta_POP(255),
      1:nlyr(AOI_stack)) # plot todas las capas del stack 
 ```
@@ -117,7 +126,7 @@ plot(AOI_stack,
 ## Guardar
 ```{r guardar_stack_POP, include=TRUE, warning = FALSE, message = FALSE}
 writeRaster(AOI_stack,
-         paste0("../../process/geoprocess/GHS_POP/",
+         paste0("../../geoproceso/delivery/GHS_POP/",
                 aoi_name,
                 "_GHS_POP.tif"),
          overwrite=TRUE)  # para remplazar
@@ -127,7 +136,7 @@ writeRaster(AOI_stack,
 # Save the raster stack with their names
 for (i in 1:nlyr(AOI_stack)) {
   writeRaster(AOI_stack[[i]], 
-              filename = paste0("../../process/geoprocess/GHS_POP/",
+              filename = paste0("../../geoproceso/delivery/GHS_POP/",
                                 names(AOI_stack)[i], "_",
                                 aoi_name,
                                 ".tif"),
@@ -151,32 +160,18 @@ plot(diff_2025,
      1:nlyr(diff_2025)) # plot todas las capas del stack 
 ```
 
-```{r diferencia_2030-POP}
-diff_2030 <- AOI_stack$GHS_POP_E2030 - AOI_stack$GHS_POP_E2020
-
-plot(diff_2030, 
-     range=c(-5,40), # para que tengan todos los plt la misma escala
-     col=paleta_POP_diff(255),
-     1:nlyr(diff_2030)) # plot todas las capas del stack 
-```
 
 ### Guardar diferencias
 ```{r guardar_diff25, include=TRUE, warning = FALSE, message = FALSE}
 # diferencia 2025
 writeRaster(diff_2025,
-         paste0("../../process/geoprocess/GHS_POP/",
+         paste0("../../geoproceso/delivery/GHS_POP/",
                 "diff_2025_",
                 aoi_name,
                 "_GHS_POP.tif"),
          overwrite=TRUE)
 
-# diferencia 2030
-writeRaster(diff_2030,
-         paste0("../../process/geoprocess/GHS_POP/",
-                "diff_2030_",
-                aoi_name,
-                "_GHS_POP.tif"),
-         overwrite=TRUE) 
+
 ```
 
 
