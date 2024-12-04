@@ -2,6 +2,8 @@
 title: "Proceso para determinar ubicación óptima"
 author: "Gisarte"
 format: html
+
+eval: FALSE
 ---
 
 ## El Problema
