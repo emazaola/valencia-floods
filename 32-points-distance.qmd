@@ -1,0 +1,519 @@
+# Population Density
+
+## Cargar librerías
+```{r, include=TRUE, warning = FALSE, message = FALSE, echo=FALSE}
+# install.packages("pacman")
+pacman::p_load(
+    sf,
+    terra, 
+    tidyverse, 
+    mapview,
+    tidyterra,
+    osmdata,
+    # gganimate, 
+    # gstat,
+    DT
+)
+```
+## Área de interés y máscara
+El área de trabajo se ha obtenido en 10-AOi y se ha guardado en **geoprocess**.
+
+```{r aoi_name_20}
+aoi_name <- c("Valencia")
+```
+
+Se carga la zona de estudio tanto en sf como en vector-rast
+```{r aoi}
+aoi_pop <- rast("../../geoproceso/delivery/GHS_POP/GHS_POP_E2020_Valencia.tif")
+
+AOI_sf <- read_sf("../../geoproceso/delivery/aoi_mask.gpkg")
+
+#AOI <- terra::vect(AOI_sf)
+```
+
+
+## Convertir de raster a puntos
+
+```{r vectorizarPOP, include=TRUE}
+pop_points <- as.data.frame(aoi_pop,
+                            xy = TRUE,
+                            na.rm = TRUE)
+
+pop_points_sf <- st_as_sf(pop_points,
+                          coords = c("x", "y"),
+                          crs = st_crs(AOI_sf))
+```
+
+```{r names_pop_points_sf}
+names(pop_points_sf )
+```
+
+
+```{r mapview_pop_points_sf}
+mapview(pop_points_sf)
+```
+######
+
+
+## Selección de las ubicaciones óptimas
+
+```{r}
+set.seed(123)  # For reproducibility
+
+kmeans_result <- kmeans(pop_points[, c("x", "y")], centers = 8)
+
+```
+
+
+```{r}
+## Agregar el clúster asignado a cada punto
+pop_points$cluster <- kmeans_result$cluster
+
+
+```
+
+```{r}
+# Convertir puntos de población clasificados a sf
+pop_points_sf <- st_as_sf(pop_points,
+                          coords = c("x", "y"),
+                          crs = st_crs(AOI_sf))
+```
+
+
+Crear sf para los centros de los clústeres
+
+```{r cluster_centers_sf}
+# Crear sf para los centros de los clústeres
+cluster_centers <- data.frame(kmeans_result$centers)
+
+# Crear sf
+cluster_centers_sf <- st_as_sf(cluster_centers,
+                               coords = c("x", "y"),
+                               crs = st_crs(AOI_sf))
+
+```
+
+
+### Polígonos de los clústeres
+
+Crear polígonos de Voronoi usando st_voronoi
+
+```{r}
+# Crear polígonos de Voronoi usando st_voronoi
+voronoi_sf <- st_voronoi(st_union(st_geometry(cluster_centers_sf)),
+                         bOnlyEdges = FALSE)
+
+```
+
+Descomponer voronoi_sf en entidades correspondientes con los clústeres
+
+```{r voronoi_entities}
+voronoi_entities <- st_cast(voronoi_sf)
+
+mapview(voronoi_entities)
+```
+Recortar los poligonos voronoi a la AOI. Para ello:
+- Se transforma en objeto sf
+- Se hace el corte **st_intersection**
+
+```{r voronoi_AOI }
+voronoi_AOI <- st_as_sf(voronoi_entities,
+                               #coords = c("x", "y"),
+                               crs = st_crs(AOI_sf)) 
+
+voronoi_AOI <- st_intersection(voronoi_AOI, AOI_sf)
+
+mapview(voronoi_AOI)
+```
+
+
+```{r}
+ggplot() + 
+  geom_sf(data = voronoi_AOI, fill = 'grey80', color = 'blue') + 
+  geom_sf(data = cluster_centers_sf, color = 'red', size = 2) 
+```
+
+
+```{r}
+ggplot() + 
+  geom_sf(data = voronoi_AOI, fill = 'grey80', color = 'blue') + 
+  geom_sf(data = cluster_centers_sf, color = 'red', size = 2) 
+```
+
+```{r}
+ggplot() +
+  geom_sf(data = AOI_sf, fill = NA, color = "black") +
+  geom_sf(data = voronoi_AOI, color = 'blue',size = 8) + 
+  geom_sf(data = pop_points_sf, aes(color = as.factor(cluster)), size = 0.5) +
+  geom_sf(data = cluster_centers_sf, color = "red", size = 3) +
+  labs(color = "Cluster") +
+  theme_minimal()
+```
+
+
+
+### Estadísticas zonales
+
+```{r}
+zones_rast <- vect(voronoi_AOI)
+
+ 
+ #Calculate zonal statistics (e.g., sum of population)
+zonal_stats <- zonal(aoi_pop, zones_rast, fun = "sum", na.rm = TRUE)
+
+
+```
+
+
+```{r}
+# Assuming the zone IDs in zones_rast match the row order in voronoi_AOI
+voronoi_AOI$population_sum <- round(zonal_stats[, 1]) #redondeado
+
+```
+
+```{r Superfice_ha}
+voronoi_AOI$Superfice_ha <- round(st_area(voronoi_AOI)/10000)
+```
+
+
+
+
+```{r}
+voronoi_AOI <- voronoi_AOI |> 
+  mutate(densidad_poblacional=round(population_sum/Superfice_ha))
+```
+
+
+```{r}
+voronoi_AOI |> 
+  datatable(filter="top", 
+            class = 'cell-border stripe',
+            rownames=FALSE)
+  
+```
+voronoi_AOI |> 
+  datatable(filter="top", 
+            class = 'cell-border stripe',
+            options = list(pageLength = 6,
+                           autoWidth = FALSE),
+            rownames=FALSE)|> 
+  formatStyle(columns = c(3: 4), fontSize = '90%',width = '40%')|>
+  formatStyle(columns = c(5,6),  color = 'blue')|>
+  formatStyle(columns = c(1,2,5,6),  backgroundColor = 'linen')|>
+  formatPercentage(c("Mendi_pub"), 2) |> 
+  formatStyle(columns = c(1,2,5,6), fontWeight = "bold")
+  
+
+
+```{r}
+# Create an interactive map with population sums
+library(RColorBrewer)
+pal <- colorRampPalette(brewer.pal(8, "YlOrRd"))(8)
+
+mapView(voronoi_AOI, zcol = "population_sum",
+        col.regions = pal,
+        legend = TRUE, legend.opacity = 1,
+        homebutton = TRUE)
+
+```
+
+
+
+
+```{r}
+# Extraer las geometrías de los centros de clústeres
+cluster_geometries <- st_geometry(cluster_centers_sf)
+
+# Calcular polígonos de Voronoi a partir de los centros de clúster
+voronoi_polygons <- st_voronoi(st_union(cluster_geometries),
+                               envelope = st_bbox(AOI_sf))
+
+# Convertir a sf y recortar con el área de interés
+voronoi_sf <- st_cast(st_sf(geometry = st_sfc(voronoi_polygons), crs = st_crs(AOI_sf)), "POLYGON")
+voronoi_sf <- st_intersection(voronoi_sf, AOI_sf)
+
+# Unir el índice del clúster a los polígonos
+voronoi_sf$cluster <- seq_len(nrow(voronoi_sf))
+```
+
+
+```{r}
+mapview(pop_points_sf, zcol = "cluster") + 
+  
+mapview(pop_points_sf, zcol = "cluster") +
+  mapview(cluster_centers_sf, col.regions = "red", cex = 2)
+```
+
+
+
+
+```{r}
+
+delivery_points <- data.frame(kmeans_result$centers)
+
+delivery_points_sf <- st_as_sf(delivery_points,
+                               coords = c("x", "y"),
+                               crs =st_crs(AOI_sf))
+```
+
+
+```{r}
+delivery_places <- mapview(delivery_points_sf)
+delivery_places
+```
+
+
+```{r eval=FALSE}
+# Suponiendo que tu mapa en mapview se llama "mi_mapa"
+library(leaflet)
+library(htmlwidgets)
+
+# Acceder al objeto leaflet
+mapa_leaflet <- leaflet::leafletOutput(delivery_places)
+
+# Guardar como HTML
+saveWidget(as.widget(mapa_leaflet),
+           file = "../../Productos/delivery_places.html")
+
+
+
+```
+
+
+```{r}
+
+
+   ggplot() +
+     geom_sf(data = AOI_sf, fill = NA, color = "black") +
+     geom_sf(data = pop_points_sf, 
+             aes(color = GHS_POP_E2020),
+             size = 0.5) +
+  scale_color_gradientn(colors = colorRampPalette(c("wheat", "orange", "brown"))(100),
+                         na.value = "grey50") +
+     geom_sf(data = delivery_points_sf, color = "red", size = 3) +
+     theme_minimal()
+```
+
+
+
+```{r}
+paleta_POP <- colorRampPalette(c("wheat", "orange", "brown"))
+
+ggplot() +
+  geom_sf(data = AOI_sf, fill = NA, color = "black") +
+  geom_spatraster(data= aoi_pop) +
+  scale_fill_gradientn(colors = paleta_POP(100), na.value = "white") +
+  #geom_spatraster_contour(data = aoi_pop, breaks = seq(0, 350, 50)) +
+     geom_sf(data = delivery_points_sf, color = "red", size = 3) +
+     theme_minimal()
+```
+
+## Análisis de accesibilidad
+
+```{r}
+bbox <- st_bbox(AOI_sf)
+
+roads <- opq(bbox)  |> 
+    add_osm_feature(key = "highway")  |> 
+    osmdata_sf()
+   
+road_lines <- roads$osm_lines
+```
+
+
+```{r proyectar_roadsOSM}
+road_lines <- road_lines |>
+  st_transform(st_crs(AOI_sf))
+
+```
+
+
+Filtrar calles aptas para andar
+
+```{r}
+for_walk <- c("residential", "pedestrian", "footway", "path", "service", "track", "unclassified")
+```
+
+```{r}
+   road_lines <- road_lines %>%
+     filter(highway %in% for_walk)
+```
+
+
+```{r}
+#head(names(road_lines))
+
+road_lines <- road_lines |> 
+  select(c("osm_id", "name"))
+
+```
+
+```{r}
+AOI_sf <- st_make_valid(AOI_sf)
+```
+
+
+```{r}
+
+road_lines <- st_intersection(road_lines,AOI_sf)
+```
+
+
+
+
+```{r}
+mapview(road_lines)
+```
+
+
+
+## Crear el network graph
+
+Seleccionar el tipo de geometría de las calles
+```{r}
+unique(st_geometry_type(road_lines))
+
+```
+
+```{r}
+road_lines <- road_lines[st_geometry_type(road_lines) == "LINESTRING", ]
+
+```
+
+
+
+```{r}
+library(sfnetworks)
+   
+road_network <- as_sfnetwork(road_lines)
+```
+
+## Hacer el análisis de accesibilidad
+
+```{r}
+library(tidygraph)
+   
+# Calculate travel time (assuming 5 km/h walking speed)
+road_network <- road_network %>%
+    activate("edges") %>%
+    mutate(travel_time = st_length(geometry) / 5000 * 60)  # Time in minutes
+   
+   # Calculate accessibility from delivery points
+accessibility <- st_network_cost(road_network, 
+                                    from = delivery_points_sf, 
+                                    to = pop_points_sf, 
+                                    weight = "travel_time")
+```
+
+
+
+###Visualiar la accesibilidad
+
+```{r}
+print(nrow(pop_points_sf))
+print(length(accessibility[,1]))
+
+```
+
+
+
+
+```{r}
+pop_points_sf$accessibility <- apply(accessibility, 1, min)
+
+```
+
+
+```{r}
+pop_points_sf$accessibility <- accessibility[,1]
+
+```
+
+
+```{r}
+
+
+ggplot() +
+     geom_sf(data = AOI_sf, fill = NA, color = "black") +
+     geom_sf(data = road_lines, color = "gray") +
+     geom_sf(data = pop_points_sf, aes(color = accessibility[, 1]), size = 0.5) +
+     geom_sf(data = delivery_points_sf, color = "red", size = 3) +
+     scale_color_viridis_c(name = "Travel Time (min)") +
+     theme_minimal() +
+     ggtitle("Accessibility to Delivery Points")
+```
+
+
+
+
+
+
+
+
+```{r}
+#head(names(road_lines))
+
+road_lines <- road_lines |> 
+  select(1:3)
+
+plot(road_lines)
+```
+
+
+
+
+
+
+## Guardar
+```{r guardar_stack_POP, include=TRUE, warning = FALSE, message = FALSE}
+writeRaster(AOI_stack,
+         paste0("../../geoproceso/delivery/GHS_POP/",
+                aoi_name,
+                "_GHS_POP.tif"),
+         overwrite=TRUE)  # para remplazar
+```
+
+```{r guardar_capas_POP, include=TRUE, warning = FALSE, message = FALSE}
+# Save the raster stack with their names
+for (i in 1:nlyr(AOI_stack)) {
+  writeRaster(AOI_stack[[i]], 
+              filename = paste0("../../geoproceso/delivery/GHS_POP/",
+                                names(AOI_stack)[i], "_",
+                                aoi_name,
+                                ".tif"),
+              overwrite=TRUE)  # para remplazar)
+}
+```
+## Cálculo de diferencias
+Se va a calcular la diferencia entre el último año pasado (2020) y las 2 proyecciones futuras existentes (2025 y 2030)
+
+```{r paleta_POP_diff}
+paleta_POP_diff <- colorRampPalette(c("brown", "orange","wheat",
+                                      "green","blue"))              
+```
+
+```{r diferencia_2025-POP}
+diff_2025 <- AOI_stack$GHS_POP_E2025 - AOI_stack$GHS_POP_E2020
+
+plot(diff_2025, 
+     range=c(-5,15), # para que tengan todos los plt la misma escala
+     col=paleta_POP_diff(255),
+     1:nlyr(diff_2025)) # plot todas las capas del stack 
+```
+
+
+### Guardar diferencias
+```{r guardar_diff25, include=TRUE, warning = FALSE, message = FALSE}
+# diferencia 2025
+writeRaster(diff_2025,
+         paste0("../../geoproceso/delivery/GHS_POP/",
+                "diff_2025_",
+                aoi_name,
+                "_GHS_POP.tif"),
+         overwrite=TRUE)
+
+
+```
+
+
+

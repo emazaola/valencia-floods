@@ -1,0 +1,453 @@
+# Population Density
+
+## Cargar librerías
+```{r, include=TRUE, warning = FALSE, message = FALSE, echo=FALSE}
+# install.packages("pacman")
+pacman::p_load(
+    sf,
+    terra, 
+    tidyverse, 
+    mapview,
+    tidyterra,
+    osmdata,
+    # gganimate, 
+    # gstat,
+    DT
+)
+```
+## Área de interés y máscara
+El área de trabajo se ha obtenido en 10-AOi y se ha guardado en **geoprocess**.
+
+```{r aoi_name_20}
+aoi_name <- c("Valencia")
+```
+
+Se carga la zona de estudio tanto en sf como en vector-rast
+```{r aoi}
+aoi_pop <- rast("../../geoproceso/delivery/GHS_POP/GHS_POP_E2020_Valencia.tif")
+
+aoi_sf <- read_sf("../../geoproceso/delivery/aoi_mask.gpkg")
+```
+
+
+Convertir de raster a puntos
+
+```{r}
+pop_puntos <- as.points(aoi_pop)
+pop_puntos_sf <- st_as_sf(pop_puntos)
+
+pop_puntos_sf <- st_transform(pop_puntos_sf, st_crs(aoi_sf))
+
+st_crs(pop_puntos_sf)== st_crs(aoi_sf)
+```
+
+Ponemos nombres claros
+```{r}
+names(pop_puntos_sf) <- c("population", "geometry")
+```
+
+## Clustering
+Calcular la población total y por cluster
+```{r}
+poblacion_total <- sum(pop_puntos_sf$population, na.rm = TRUE)
+poblacion_por_cluster <- poblacion_total / 8
+poblacion_por_cluster
+
+```
+
+### Algoritmo de clustering
+
+Necesitará implementar un algoritmo que divida los puntos en 8 clusters con población aproximadamente igual. Una opción podría ser utilizar un enfoque iterativo:
+
+```{r}
+set.seed(123) # Para reproducibilidad
+
+clusters <- kmeans(st_coordinates(pop_puntos_sf), centers = 8)
+pop_puntos_sf$cluster <- clusters$cluster
+
+
+```
+
+Para utilizar el algoritmo hay que estar seguros de que no hay valores NA
+
+1- Comprobar NA
+
+```{r}
+summary(pop_puntos_sf$population)
+summary(pop_puntos_sf$cluster)
+
+```
+
+2- Eliminar NA
+
+```{r}
+pop_puntos_sf <- pop_puntos_sf %>%
+  filter(!is.na(population) & !is.na(cluster))
+
+```
+
+
+3- Asegurarte de que todos los puntos tienen un cluster asignado:
+```{r}
+table(pop_puntos_sf$cluster)
+```
+
+
+Se preparan los valores iniciales
+```{r}
+cluster_sums <- pop_puntos_sf %>%
+  group_by(cluster) %>%
+  summarise(sum_layer = sum(population, na.rm = TRUE))
+
+cluster_mas_poblado <- which.max(cluster_sums$sum_population)
+cluster_menos_poblado <- which.min(cluster_sums$sum_population)
+
+```
+
+```{r}
+cluster_sums |> 
+  st_drop_geometry() |> 
+  datatable()
+```
+
+
+Se corre el algoritmo
+```{r}
+while(max(tapply(pop_puntos_sf$population, pop_puntos_sf$cluster, sum)) > 1.1 * poblacion_por_cluster) {
+  # Reasignar puntos del cluster más poblado al menos poblado
+  cluster_mas_poblado <- which.max(tapply(pop_puntos_sf$population, pop_puntos_sf$cluster, sum))
+  cluster_menos_poblado <- which.min(tapply(pop_puntos_sf$population, pop_puntos_sf$cluster, sum))
+  
+  puntos_a_mover <- pop_puntos_sf %>%
+    filter(cluster == cluster_mas_poblado) %>%
+    arrange(desc(population)) %>%
+    slice(1:10)
+  
+  pop_puntos_sf$cluster[pop_puntos_sf$cluster == cluster_mas_poblado & 
+                        pop_puntos_sf$population %in% puntos_a_mover$population] <- cluster_menos_poblado
+}
+```
+ 
+ 
+```{r}
+cluster_sums <- pop_puntos_sf %>%
+  group_by(cluster) %>%
+  summarise(sum_population = sum(population, na.rm = TRUE))
+```
+ 
+```{r}
+names(pop_puntos_sf)
+```
+
+
+```{r}
+ggplot() +
+  geom_sf(data = aoi_sf, fill = NA, color = "black") +
+  #geom_sf(data = voronoi_AOI, color = 'blue',size = 8) + 
+  geom_sf(data = pop_puntos_sf, aes(color = as.factor(cluster)), size = 0.5) +
+ # geom_sf(data = cluster_sums, aes(color = as.factor(cluster)), size = 2) +
+  labs(color = "Cluster") +
+  theme_minimal()
+```
+
+Se observa que hay puntos que perteneciendo a un cluster determinado se encuentran más cercanos a otro cluster. 
+Hay que eliminar los outlayers de cada cluster.
+
+### Limitar cluster
+
+
+```{r}
+# Definir los puntos de referencia
+punto_ref_2 <- st_point(c(-0.41313030, 39.40477450))
+punto_ref_3 <- st_point(c(-0.40627340, 39.40943239))
+punto_ref_5 <- st_point(c(-0.41720845, 39.42828384))
+punto_ref_6 <- st_point(c(-0.41321026, 39.39293986))
+
+# Convertir los puntos de referencia a objetos sf con el mismo CRS que pop_puntos_sf
+crs_original <- st_crs(pop_puntos_sf)
+punto_ref_2_sf <- st_sfc(punto_ref_2, crs = crs_original)
+punto_ref_3_sf <- st_sfc(punto_ref_3, crs = crs_original)
+punto_ref_5_sf <- st_sfc(punto_ref_5, crs = crs_original)
+punto_ref_6_sf <- st_sfc(punto_ref_6, crs = crs_original)
+
+# Filtrar los puntos según las condiciones especificadas
+pop_puntos_sf <- pop_puntos_sf %>%
+  mutate(
+    keep = case_when(
+      cluster == 2 ~ st_coordinates(geometry)[, 1] <= st_coordinates(punto_ref_2_sf)[, 1],
+      cluster == 3 ~ st_coordinates(geometry)[, 1] <= st_coordinates(punto_ref_3_sf)[, 1],
+      cluster == 5 ~ st_coordinates(geometry)[, 1] <= st_coordinates(punto_ref_5_sf)[, 1],
+      cluster == 6 ~ st_coordinates(geometry)[, 2] <= st_coordinates(punto_ref_6_sf)[, 2],
+      TRUE ~ TRUE
+    )
+  ) %>%
+  filter(keep) %>%
+  select(-keep)
+
+
+# Asegurarse de que el resultado tenga el mismo CRS que pop_puntos_sf
+st_crs(pop_puntos_sf) <- crs_original
+
+```
+
+
+Se vuelve a calcular la población de los clusteres 
+```{r}
+ pop_puntos_sf %>%
+  group_by(cluster) %>%
+  summarise(sum_population = sum(population, na.rm = TRUE)) |>  st_drop_geometry() |> 
+  datatable()
+```
+
+```{r}
+ggplot() +
+  geom_sf(data = aoi_sf, fill = NA, color = "black") +
+  #geom_sf(data = voronoi_AOI, color = 'blue',size = 8) + 
+  geom_sf(data = pop_puntos_sf, aes(color = as.factor(cluster)), size = 0.5) +
+ # geom_sf(data = cluster_sums, aes(color = as.factor(cluster)), size = 2) +
+  labs(color = "Cluster") +
+  theme_minimal()
+```
+
+
+
+
+
+
+```{r}
+mapview(pop_puntos_sf, zcol="cluster")
+```
+
+Convertir los clusters a polígonos 
+
+```{r}
+clusters_poligonos <- pop_puntos_sf %>%
+  group_by(cluster) %>%
+  summarise(geometry = st_union(geometry)) %>%
+  st_cast("POLYGON")
+
+```
+
+
+Añadir la población a los polígonos
+```{r}
+clusters_poligonos$population <-cluster_sums$sum_population  
+```
+
+
+
+## Centro de población
+
+Para obtener el punto central de población de cada polígono, considerando la población en lugar de la distancia, podemos utilizar una técnica conocida como "centro de masa ponderado" o "centroide ponderado". En este caso, la ponderación será la población. 
+
+
+```{r}
+# 1. Extraer las coordenadas y agregarlas al data frame
+pop_puntos_sf_A <- pop_puntos_sf %>%
+  mutate(coords = st_coordinates(geometry)) %>%
+  tidyr::unnest_wider(coords, names_sep = "_") # Separa X e Y
+
+
+names(pop_puntos_sf_A) 
+
+# 2. Calcular el centroide ponderado por población para cada clúster
+weighted_centroids <- pop_puntos_sf_A %>%
+  group_by(cluster) %>%
+  summarize(
+    weighted_x = sum(coords_1[,1] * population) / sum(population),
+    weighted_y = sum(coords_1[,2] * population) / sum(population),
+    .groups = "drop"
+  )
+
+# 3. Convertir las coordenadas de vuelta a geometría
+weighted_centroids <- weighted_centroids %>%
+  st_as_sf(coords = c("weighted_x", "weighted_y"), crs = st_crs(pop_puntos_sf))
+
+# weighted_centroids ahora contiene los centroides ponderados por población
+
+```
+
+```{r}
+mapview(weighted_centroids)
+```
+
+
+```{r}
+ggplot() +
+  geom_sf(data = aoi_sf, fill = NA, color = "black") +
+  #geom_sf(data = voronoi_AOI, color = 'blue',size = 8) + 
+  #geom_sf(data = pop_puntos_sf, aes(color = as.factor(cluster)), size = 0.5) +geom_sf(data = datos_combinados %>% filter(tipo == "punto"), aes(color = as.factor(cluster)), size = 2, alpha = 0.7) +
+  geom_sf(data = weighted_centroids , aes(color = as.factor(cluster)), size = 4) +
+  scale_color_brewer(palette = "Set1", name = "Cluster") +
+  theme_minimal() +
+  labs(title = "Centroides y puntos originales por cluster",
+       subtitle = "Los centroides están marcados con círculos",
+       color = "Cluster")
+```
+
+## Centros en función de población y distancia
+
+```{r}
+# Función corregida para calcular el centro poblacional en un cluster
+calcular_centro_cluster <- function(cluster_data) {
+  # Calcular el centro ponderado usando la población como peso
+  centro_ponderado <- st_coordinates(cluster_data) %>%
+    as.data.frame() %>%
+    mutate(peso = cluster_data$population) %>%
+    summarise(
+      x_centro = sum(X * peso) / sum(peso),
+      y_centro = sum(Y * peso) / sum(peso)
+    )
+  
+  # Crear un punto con el CRS del cluster
+  punto_centro <- st_point(c(centro_ponderado$x_centro, centro_ponderado$y_centro)) %>%
+    st_sfc(crs = st_crs(cluster_data))
+  
+  # Calcular las distancias al centro ponderado
+  cluster_data <- cluster_data %>%
+    mutate(distancia_centro = st_distance(geometry, punto_centro))
+  
+  # Seleccionar el punto con menor distancia ponderada
+  cluster_centro <- cluster_data %>%
+    slice_min(distancia_centro) %>%
+    select(-distancia_centro)
+  
+  return(cluster_centro)
+}
+
+```
+
+
+```{r}
+ # Aplicar la función a cada cluster
+centroides_clusters <- pop_puntos_sf %>%
+  group_by(cluster) %>%
+  group_split() %>%
+  purrr::map_df(calcular_centro_cluster)
+```
+
+```{r}
+# Mostrar los resultados
+centroides_clusters |> 
+  st_drop_geometry() |> datatable()
+```
+
+```{r}
+# Crear una columna para identificar los centroides
+centroides_clusters <- centroides_clusters %>%
+  mutate(tipo = "centroide")
+
+# Crear una columna para identificar los puntos originales
+puntos_originales <- pop_puntos_sf %>%
+  mutate(tipo = "punto")
+
+# Combinar los datos originales con los centroides
+datos_combinados <- bind_rows(
+  puntos_originales %>% select(cluster, geometry, tipo),
+  centroides_clusters %>% select(cluster, geometry, tipo)
+)
+```
+
+```{r}
+# Visualizar con ggplot2
+ggplot() +
+  geom_sf(data = datos_combinados %>% filter(tipo == "punto"), aes(color = as.factor(cluster)), size = 2, alpha = 0.7) +
+  geom_sf(data = datos_combinados %>% filter(tipo == "centroide"), aes(color = as.factor(cluster)), size = 4, shape = 3) +
+  scale_color_brewer(palette = "Set1", name = "Cluster") +
+  theme_minimal() +
+  labs(title = "Centroides y puntos originales por cluster",
+       subtitle = "Los centroides están marcados con cruces",
+       color = "Cluster")
+```
+
+
+
+```{r}
+ggplot() +
+  geom_sf(data = aoi_sf, fill = NA, color = "black") +
+  #geom_sf(data = voronoi_AOI, color = 'blue',size = 8) + 
+  #geom_sf(data = pop_puntos_sf, aes(color = as.factor(cluster)), size = 0.5) +geom_sf(data = datos_combinados %>% filter(tipo == "punto"), aes(color = as.factor(cluster)), size = 2, alpha = 0.7) +
+  geom_sf(data = datos_combinados %>% filter(tipo == "centroide"), aes(color = as.factor(cluster)), size = 4) +
+  scale_color_brewer(palette = "Set1", name = "Cluster") +
+  theme_minimal() +
+  labs(title = "Centroides y puntos originales por cluster",
+       subtitle = "Los centroides están marcados con círculos",
+       color = "Cluster")
+```
+
+
+```{r}
+mapview(centroides_clusters)
+```
+
+
+
+```{r}
+ggplot() +
+  geom_sf(data = aoi_sf, fill = NA, color = "black") +
+  geom_sf(data = datos_combinados %>% filter(tipo == "centroide"), aes(color = as.factor(cluster)), size = 4, shape=4) +
+  #geom_sf(data = voronoi_AOI, color = 'blue',size = 8) + 
+  #geom_sf(data = pop_puntos_sf, aes(color = as.factor(cluster)), size = 0.5) +geom_sf(data = datos_combinados %>% filter(tipo == "punto"), aes(color = as.factor(cluster)), size = 2, alpha = 0.7) +
+  geom_sf(data = weighted_centroids , aes(color = as.factor(cluster)), size = 4, shape=3) +
+  scale_color_brewer(palette = "Set1", name = "Cluster") +
+  theme_minimal() +
+  labs(title = "Centroides y puntos originales por cluster",
+       subtitle = "cruz población - ekis población& distancia",
+       color = "Cluster")
+```
+
+## Guardar
+
+### Guardar centroides población
+
+```{r, guardar_aoi-gpkg}
+st_write(weighted_centroids,
+         paste0("../../process/geoprocess/centroides/centroides_POP.gpkg"),
+         append = FALSE)
+
+```
+
+
+```{r, guardar_aoi-gpkg}
+st_write(weighted_centroids,
+         paste0("../../process/geoprocess/centroides/centroides_POP.kml"),
+         append = FALSE)
+
+```
+
+
+
+```{r, guardar_aoi-gpkg}
+st_write(weighted_centroids,
+         paste0("../../process/geoprocess/centroides/centroides_POP.geojson"),
+         append = FALSE)
+
+```
+
+
+### Guardar centroides población y distancia
+
+
+```{r, guardar_aoi-gpkg}
+st_write(centroides_clusters,
+         paste0("../../process/geoprocess/centroides/centroides_POP_DIST.gpkg"),
+         append = FALSE)
+
+```
+
+
+```{r, guardar_aoi-gpkg}
+st_write(centroides_clusters,
+         paste0("../../process/geoprocess/centroides/centroides_POP_DIST.kml"),
+         append = FALSE)
+
+```
+
+
+
+```{r, guardar_aoi-gpkg}
+st_write(centroides_clusters,
+         paste0("../../process/geoprocess/centroides/centroides_POP_DIST.geojson"),
+         append = FALSE)
+
+```
